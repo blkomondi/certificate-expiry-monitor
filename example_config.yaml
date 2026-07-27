@@ -1,0 +1,27 @@
+# Secrets may be supplied as ${ENVIRONMENT_VARIABLE} values.
+settings:
+  timeout: 10
+  concurrency: 8
+  state_file: ".certificate-monitor-state.json"
+
+thresholds:
+  warning_days: 30
+  high_days: 15
+  critical_days: 5
+
+targets:
+  - type: tls
+    host: example.com
+    port: 443
+  - type: tls
+    host: api.example.com
+    port: 443
+  - type: file
+    path: "./certificates/*.pem"
+
+notifications:
+  console:
+    enabled: true
+  webhook:
+    enabled: false
+    url: "${CERT_WEBHOOK_URL}"

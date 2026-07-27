@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Pytest / Testing
+.pytest_cache/
+.pytest_tmp/
+.coverage
+htmlcov/
+
+# State & Local Files
+.certificate-monitor-state.json
+cmd.txt
+*.log
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

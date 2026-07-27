@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "certificate-expiry-monitor"
+version = "1.0.0"
+description = "Certificate expiry monitoring CLI"
+requires-python = ">=3.11"
+dependencies = [
+  "cryptography>=42.0",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+include = ["checker*"]
