@@ -45,10 +45,26 @@ class Settings:
 
 
 @dataclass(frozen=True, slots=True)
+class EmailConfig:
+    enabled: bool = False
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    username: str | None = None
+    password: str | None = None
+    use_tls: bool = True
+    starttls: bool = True
+    ssl: bool = False
+    from_addr: str = "alerts@example.com"
+    to_addrs: tuple[str, ...] = ()
+    subject_prefix: str = "[Certificate Alert]"
+
+
+@dataclass(frozen=True, slots=True)
 class NotificationsConfig:
     console_enabled: bool = True
     webhook_enabled: bool = False
     webhook_url: str | None = None
+    email: EmailConfig = EmailConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +89,11 @@ def _target_from_mapping(item: dict[str, Any]) -> TargetSpec:
         if not isinstance(path, str) or not path:
             raise ValueError("file target requires a non-empty path")
         return TargetSpec("file", path)
+    if kind == "url":
+        url_val = item.get("url") or item.get("value")
+        if not isinstance(url_val, str) or not url_val:
+            raise ValueError("URL target requires a non-empty url string")
+        return TargetSpec("url", url_val)
     raise ValueError(f"unsupported target type: {kind or '<missing>'}")
 
 
@@ -96,11 +117,35 @@ def load_config(path: str | Path | None) -> AppConfig:
         raise ValueError("settings, thresholds, and notifications must be mappings")
     console_raw = notification_raw.get("console", {})
     webhook_raw = notification_raw.get("webhook", {})
-    if not isinstance(console_raw, dict) or not isinstance(webhook_raw, dict):
+    email_raw = notification_raw.get("email", {})
+    if not all(isinstance(item, dict) for item in (console_raw, webhook_raw, email_raw)):
         raise ValueError("notification channels must be mappings")
     targets_raw = raw.get("targets", [])
     if not isinstance(targets_raw, list) or not all(isinstance(item, dict) for item in targets_raw):
         raise ValueError("targets must be a list of mappings")
+
+    to_addrs_raw = email_raw.get("to_addrs", [])
+    if isinstance(to_addrs_raw, str):
+        to_addrs_list = [to_addrs_raw]
+    elif isinstance(to_addrs_raw, list):
+        to_addrs_list = [str(x) for x in to_addrs_raw]
+    else:
+        to_addrs_list = []
+
+    email_config = EmailConfig(
+        enabled=bool(email_raw.get("enabled", False)),
+        smtp_host=email_raw.get("smtp_host"),
+        smtp_port=int(email_raw.get("smtp_port", 587)),
+        username=email_raw.get("username"),
+        password=email_raw.get("password"),
+        use_tls=bool(email_raw.get("use_tls", True)),
+        starttls=bool(email_raw.get("starttls", True)),
+        ssl=bool(email_raw.get("ssl", False)),
+        from_addr=str(email_raw.get("from_addr", "alerts@example.com")),
+        to_addrs=tuple(to_addrs_list),
+        subject_prefix=str(email_raw.get("subject_prefix", "[Certificate Alert]")),
+    )
+
     return AppConfig(
         settings=Settings(
             timeout=float(settings_raw.get("timeout", 10)),
@@ -117,6 +162,7 @@ def load_config(path: str | Path | None) -> AppConfig:
             console_enabled=bool(console_raw.get("enabled", True)),
             webhook_enabled=bool(webhook_raw.get("enabled", False)),
             webhook_url=webhook_raw.get("url"),
+            email=email_config,
         ),
     )
 
@@ -124,16 +170,19 @@ def load_config(path: str | Path | None) -> AppConfig:
 def apply_cli_overrides(
     config: AppConfig,
     *,
-    domains: list[str] | None,
-    files: list[str] | None,
-    timeout: float | None,
-    concurrency: int | None,
-    state_file: str | None,
+    domains: list[str] | None = None,
+    files: list[str] | None = None,
+    urls: list[str] | None = None,
+    timeout: float | None = None,
+    concurrency: int | None = None,
+    state_file: str | None = None,
 ) -> AppConfig:
     """Apply only explicit command-line values, giving flags config precedence."""
 
-    cli_targets = tuple(TargetSpec("tls", value) for value in (domains or [])) + tuple(
-        TargetSpec("file", value) for value in (files or [])
+    cli_targets = (
+        tuple(TargetSpec("tls", value) for value in (domains or []))
+        + tuple(TargetSpec("file", value) for value in (files or []))
+        + tuple(TargetSpec("url", value) for value in (urls or []))
     )
     settings = Settings(
         timeout=timeout if timeout is not None else config.settings.timeout,

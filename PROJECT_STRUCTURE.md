@@ -20,18 +20,22 @@ CEM/
 │   │   ├── __init__.py            Exposes available source implementations
 │   │   ├── base.py                Defines the extensible certificate-source interface
 │   │   ├── tls.py                 Connects to host:port and retrieves a TLS leaf certificate
+│   │   ├── url.py                 Inspects HTTPS URL targets and retrieves TLS leaf certificates
 │   │   └── files.py               Loads certificate files, directories, and file globs
 │   └── notification/              Ways to send already-decided alerts
 │       ├── __init__.py            Exposes notification implementations
 │       ├── base.py                Defines the notifier interface
 │       ├── console.py             Writes readable alerts to stderr
+│       ├── email.py               Delivers formatted alert emails via SMTP
 │       └── webhook.py             Sends a small JSON alert payload to a configured webhook
 ├── tests/                         Deterministic pytest test suite; no external network calls
 │   ├── conftest.py                Generates temporary certificates plus FakeClock/FakeNotifier
 │   ├── test_evaluation.py         Time calculations, thresholds, and not-yet-valid behaviour
 │   ├── test_parsing.py            PEM/DER metadata, fingerprints, CN, SAN extraction
 │   ├── test_sources.py            File-source behaviour and TLS error mapping
+│   ├── test_url_source.py         URL target parsing and TLS delegation
 │   ├── test_notifications.py      Console/webhook delivery and duplicate-alert prevention
+│   ├── test_email_notification.py SMTP email formatting, STARTTLS, and SSL delivery
 │   ├── test_state.py              Alert escalation, force mode, state storage, suppressions
 │   ├── test_service.py            Concurrency isolation and exit-code precedence
 │   └── test_cli.py                CLI output and suppression commands

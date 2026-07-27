@@ -12,7 +12,7 @@ from .config import TargetSpec
 from .evaluation import error_result, evaluate_certificate, utc_now
 from .models import CheckResult, ErrorReason, Severity, Thresholds
 from .notification.base import Notifier
-from .sources import CertificateSource, FileCertificateSource, TLSCertificateSource
+from .sources import CertificateSource, FileCertificateSource, TLSCertificateSource, URLCertificateSource
 from .state import AlertState
 
 LOG = logging.getLogger(__name__)
@@ -29,7 +29,11 @@ def run_checks(
 ) -> list[CheckResult]:
     """Check all independent targets concurrently while preserving input order."""
 
-    registry = sources or {"tls": TLSCertificateSource(), "file": FileCertificateSource()}
+    registry = sources or {
+        "tls": TLSCertificateSource(),
+        "file": FileCertificateSource(),
+        "url": URLCertificateSource(),
+    }
     target_list = list(targets)
     current = now()
 

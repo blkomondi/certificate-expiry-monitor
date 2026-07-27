@@ -10,7 +10,7 @@ from typing import Sequence
 
 from .config import AppConfig, apply_cli_overrides, load_config
 from .evaluation import utc_now
-from .notification import ConsoleNotifier, WebhookNotifier
+from .notification import ConsoleNotifier, EmailNotifier, WebhookNotifier
 from .output import to_json, to_prometheus, to_table
 from .service import dispatch_alerts, exit_code, run_checks
 from .state import AlertState, JsonStateStore, Suppression
@@ -19,10 +19,11 @@ LOG = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Monitor TLS and local certificate expiry.")
+    parser = argparse.ArgumentParser(description="Monitor TLS, URL, and local certificate expiry.")
     parser.add_argument("command", nargs="?", default="check", choices=("check", "acknowledge", "suppress", "unsuppress"))
     parser.add_argument("--config", help="YAML or JSON configuration file")
     parser.add_argument("--domain", action="append", help="TLS target in host:port form; may be repeated")
+    parser.add_argument("--url", action="append", help="URL target (e.g. https://example.com/api); may be repeated")
     parser.add_argument("--file", action="append", help="certificate file, glob, or directory; may be repeated")
     parser.add_argument("--format", choices=("table", "json", "prometheus"), default="table")
     parser.add_argument("--dry-run", action="store_true", help="evaluate and show prospective alerts without sending or saving")
@@ -61,6 +62,27 @@ def _notifiers(config: AppConfig) -> list[object]:
         if not config.notifications.webhook_url:
             raise ValueError("webhook is enabled but no webhook URL was configured")
         channels.append(WebhookNotifier(config.notifications.webhook_url, config.settings.timeout))
+    if config.notifications.email.enabled:
+        email_cfg = config.notifications.email
+        if not email_cfg.smtp_host:
+            raise ValueError("email notification is enabled but no smtp_host was configured")
+        if not email_cfg.to_addrs:
+            raise ValueError("email notification is enabled but no to_addrs were configured")
+        channels.append(
+            EmailNotifier(
+                smtp_host=email_cfg.smtp_host,
+                smtp_port=email_cfg.smtp_port,
+                username=email_cfg.username,
+                password=email_cfg.password,
+                use_tls=email_cfg.use_tls,
+                starttls=email_cfg.starttls,
+                ssl=email_cfg.ssl,
+                from_addr=email_cfg.from_addr,
+                to_addrs=email_cfg.to_addrs,
+                subject_prefix=email_cfg.subject_prefix,
+                timeout=config.settings.timeout,
+            )
+        )
     return channels
 
 
@@ -95,6 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             load_config(args.config),
             domains=args.domain,
             files=args.file,
+            urls=args.url,
             timeout=args.timeout,
             concurrency=args.concurrency,
             state_file=args.state_file,

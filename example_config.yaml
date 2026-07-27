@@ -13,9 +13,8 @@ targets:
   - type: tls
     host: example.com
     port: 443
-  - type: tls
-    host: api.example.com
-    port: 443
+  - type: url
+    url: "https://api.example.com/v1/health"
   - type: file
     path: "./certificates/*.pem"
 
@@ -25,3 +24,16 @@ notifications:
   webhook:
     enabled: false
     url: "${CERT_WEBHOOK_URL}"
+  email:
+    enabled: false
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    username: "${SMTP_USER}"
+    password: "${SMTP_PASS}"
+    use_tls: true
+    starttls: true
+    from_addr: "alerts@example.com"
+    to_addrs:
+      - "admin@example.com"
+      - "devops@example.com"
+    subject_prefix: "[Cert Alert]"
