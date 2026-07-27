@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from urllib.parse import urlparse
 
 
 class Severity(str, Enum):
@@ -38,6 +39,7 @@ class Thresholds:
     warning_days: int = 30
     high_days: int = 15
     critical_days: int = 5
+    custom_days: tuple[int, ...] = (30, 14, 7, 3, 1)
 
     def __post_init__(self) -> None:
         if not (0 <= self.critical_days <= self.high_days <= self.warning_days):
@@ -46,11 +48,7 @@ class Thresholds:
 
 @dataclass(frozen=True, slots=True)
 class CertInfo:
-    """Metadata extracted from one leaf certificate.
-
-    Time-dependent fields are populated by the pure evaluation layer rather
-    than by parsers or certificate sources.
-    """
+    """Metadata extracted from one leaf certificate."""
 
     target: str
     source: str
@@ -67,6 +65,27 @@ class CertInfo:
     chain_valid: bool | None
     days_remaining: int | None = None
     not_yet_valid: bool = False
+    version: str | None = None
+
+    @property
+    def hostname(self) -> str:
+        if "://" in self.target:
+            return urlparse(self.target).hostname or self.target
+        if ":" in self.target and not self.target.startswith("["):
+            return self.target.rsplit(":", 1)[0]
+        return self.target.strip("[]")
+
+    @property
+    def port(self) -> int:
+        if "://" in self.target:
+            p = urlparse(self.target).port
+            return p if p is not None else 443
+        if ":" in self.target and not self.target.startswith("["):
+            try:
+                return int(self.target.rsplit(":", 1)[1])
+            except ValueError:
+                return 443
+        return 443
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +105,43 @@ class CheckResult:
     @property
     def expires_at(self) -> datetime | None:
         return self.certificate.not_after if self.certificate else None
+
+    @property
+    def hostname(self) -> str:
+        if self.certificate:
+            return self.certificate.hostname
+        if "://" in self.target:
+            return urlparse(self.target).hostname or self.target
+        if ":" in self.target and not self.target.startswith("["):
+            return self.target.rsplit(":", 1)[0]
+        return self.target.strip("[]")
+
+    @property
+    def port(self) -> int:
+        if self.certificate:
+            return self.certificate.port
+        if "://" in self.target:
+            p = urlparse(self.target).port
+            return p if p is not None else 443
+        if ":" in self.target and not self.target.startswith("["):
+            try:
+                return int(self.target.rsplit(":", 1)[1])
+            except ValueError:
+                return 443
+        return 443
+
+    @property
+    def status(self) -> str:
+        """Normalized status name (VALID, EXPIRING_SOON, EXPIRED, UNREACHABLE, TLS_ERROR)."""
+        if self.severity == Severity.OK:
+            return "VALID"
+        if self.severity in (Severity.WARNING, Severity.HIGH, Severity.CRITICAL):
+            return "EXPIRING_SOON"
+        if self.severity == Severity.EXPIRED:
+            return "EXPIRED"
+        if self.error_reason in (ErrorReason.DNS_FAILURE, ErrorReason.CONNECTION_REFUSED, ErrorReason.TIMEOUT):
+            return "UNREACHABLE"
+        return "TLS_ERROR"
 
 
 @dataclass(frozen=True, slots=True)

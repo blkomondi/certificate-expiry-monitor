@@ -50,6 +50,14 @@ def _signature_algorithm(certificate: x509.Certificate) -> str | None:
     return algorithm.name if algorithm is not None else None
 
 
+def _version(certificate: x509.Certificate) -> str | None:
+    try:
+        ver = certificate.version
+        return ver.name if hasattr(ver, "name") else str(ver)
+    except Exception:
+        return None
+
+
 def parse_certificate_bytes(
     data: bytes,
     *,
@@ -81,6 +89,7 @@ def parse_certificate_bytes(
         signature_algorithm=_signature_algorithm(certificate),
         key_size=_key_size(certificate),
         chain_valid=chain_valid,
+        version=_version(certificate),
     )
 
 

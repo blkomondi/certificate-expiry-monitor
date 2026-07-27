@@ -16,6 +16,7 @@ _RANKS = {
     Severity.HIGH: 2,
     Severity.CRITICAL: 3,
     Severity.EXPIRED: 4,
+    Severity.ERROR: 5,
 }
 
 
@@ -53,9 +54,11 @@ class AlertState:
 
     @staticmethod
     def key(result: CheckResult) -> str | None:
-        if result.certificate is None:
-            return None
-        return f"{result.target}\x1f{result.certificate.fingerprint}"
+        if result.certificate is not None:
+            return f"{result.target}\x1f{result.certificate.fingerprint}"
+        if result.error_reason is not None:
+            return f"{result.target}\x1f__error__\x1f{result.error_reason.value}"
+        return None
 
     def is_suppressed(self, result: CheckResult, now: datetime) -> bool:
         return any(rule.matches(result, now) for rule in self.suppressions)

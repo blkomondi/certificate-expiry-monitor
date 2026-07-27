@@ -1,6 +1,6 @@
 # Certificate Expiry Monitor (CEM)
 
-A robust, extensible Python application for monitoring TLS, URL, and local certificate expiration with automated alert management, notification channels (Console, Webhook, SMTP Email), and multiple export formats (Table, JSON, Prometheus).
+A robust, extensible Python application for monitoring TLS, URL, and local certificate expiration with automated alert management and multiple notification channels (Console, Webhook, SMTP Email, **SendGrid API**).
 
 ## Features
 
@@ -12,6 +12,7 @@ A robust, extensible Python application for monitoring TLS, URL, and local certi
   - **Console**: Human-readable stderr alert logs.
   - **Webhook**: POST JSON alert payloads to Slack, Teams, or custom webhook endpoints.
   - **Email (SMTP)**: Send formatted alert emails via SMTP (STARTTLS / SSL authentication).
+  - **Email (SendGrid API)**: Send alerts via SendGrid REST API over **HTTPS (port 443)** — bypasses ISPs that block SMTP ports.
 - **Flexible Alert State Management**:
   - Alert suppression and acknowledgment per target.
   - Tier-based escalation (30, 14, 7, 3, 1 days & Expired).
@@ -27,8 +28,12 @@ A robust, extensible Python application for monitoring TLS, URL, and local certi
 # Create and activate virtual environment
 python -m venv .venv
 
-# On Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
+# On Windows:
+.venv\Scripts\activate
+
+# On Windows (if PowerShell blocks scripts):
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.venv\Scripts\Activate.ps1
 
 # On Linux/macOS:
 source .venv/bin/activate
@@ -37,25 +42,41 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### One-Click Launcher (Windows)
+
+Double-click `launch_cem.bat` to open an interactive menu:
+
+```
+1) Quick check (default targets)
+2) Check custom URL
+3) Continuous monitor mode
+4) Start API server
+5) Dry-run (no email sent)
+0) Exit
+```
+
 ---
 
 ## How to Check URLs
 
 ### 1. Check URLs directly from Terminal
+
 ```bash
 # Check a single URL
 python -m checker --url https://example.com
 
 # Check multiple URLs
-python -m checker --url https://example.com --url https://api.example.com:8443 --url https://google.com
+python -m checker --url https://example.com --url https://api.example.com:8443
 ```
 
 ### 2. Check URLs using Configuration File
+
 ```bash
 python -m checker --config example_config.yaml
 ```
 
 ### 3. Change Output Format
+
 ```bash
 # Human-readable table (default)
 python -m checker --url https://example.com
@@ -68,20 +89,27 @@ python -m checker --url https://example.com --format prometheus
 ```
 
 ### 4. Periodic Scheduled Background Monitoring
+
 ```bash
 # Periodically check URLs every 6 hours (21600 seconds)
 python -m checker monitor --interval 21600
+
+# Run a single monitor loop (for testing)
+python -m checker monitor --interval 3600 --once
 ```
 
 ### 5. Run HTTP REST API Server
+
 ```bash
 # Start API server on port 8000
 python -m checker serve --port 8000
 
-# POST /api/monitors to register a new URL target
-curl -X POST http://127.0.0.1:8000/api/monitors -H "Content-Type: application/json" -d '{"url": "https://example.com"}'
+# In another terminal, register a new URL target
+curl -X POST http://127.0.0.1:8000/api/monitors ^
+  -H "Content-Type: application/json" ^
+  -d "{\"url\": \"https://example.com\"}"
 
-# GET /api/monitors to view target statuses
+# View all monitored targets
 curl http://127.0.0.1:8000/api/monitors
 ```
 
@@ -89,9 +117,31 @@ curl http://127.0.0.1:8000/api/monitors
 
 ## Email Alerts & Environment Configuration (`.env`)
 
-Email alerts can be configured using environment variables in a `.env` file or directly in `example_config.yaml`:
+Copy `.env.example` to `.env` and fill in your credentials:
 
-### `.env` File Example
+```bash
+copy .env.example .env
+```
+
+### Option 1: SendGrid API (Recommended — Bypasses SMTP blocking)
+
+SendGrid uses **HTTPS (port 443)** to send emails, so it works even when your ISP blocks SMTP ports. It also works with any email address (Gmail, Outlook, etc.) as the sender.
+
+```env
+# SendGrid API Configuration
+SENDGRID_API_KEY=SG.your_sendgrid_api_key_here   # From SendGrid dashboard
+SENDGRID_FROM=blacksaphire.ke@gmail.com           # Must be verified in SendGrid
+SENDGRID_RECIPIENT=admin@example.com              # Where alerts go
+```
+
+**Setup steps:**
+1. Create a free account at [signup.sendgrid.com](https://signup.sendgrid.com)
+2. Go to **Settings → API Keys → Create API Key** (Full Access)
+3. Go to **Settings → Sender Authentication → Single Sender Verification** and verify your sender email
+4. Add the values to your `.env` file
+
+### Option 2: SMTP Email (Traditional)
+
 ```env
 # SMTP Configuration
 SMTP_HOST=smtp.gmail.com
@@ -101,16 +151,25 @@ SMTP_PASSWORD=your-app-password
 SMTP_FROM=your-email@gmail.com
 
 # Alert Recipients (comma-separated for multiple)
-ALERT_RECIPIENT=admin@example.com,devops@example.com
+ALERT_RECIPIENT=admin@example.com
+```
 
-# Configurable Alert Thresholds (in days)
+> **Note:** Many residential ISPs block SMTP ports (587, 465). If emails don't arrive, use the **SendGrid API** option above instead.
+
+### Optional: Custom Thresholds & Interval
+
+```env
+# Configurable Alert Thresholds (in days, comma-separated)
 ALERT_THRESHOLDS=30,14,7,3,1
 
-# Monitoring Interval (in seconds)
+# Monitoring Interval (in seconds, default 21600 = 6 hours)
 CHECK_INTERVAL=21600
 ```
 
-### YAML Configuration Example (`example_config.yaml`)
+---
+
+## Configuration File (`example_config.yaml`)
+
 ```yaml
 settings:
   timeout: 10
@@ -126,8 +185,6 @@ thresholds:
 targets:
   - type: url
     url: "https://example.com"
-  - type: url
-    url: "https://api.example.com"
   - type: tls
     host: example.com
     port: 443
@@ -143,7 +200,7 @@ notifications:
     url: "${CERT_WEBHOOK_URL}"
 
   email:
-    enabled: true
+    enabled: false
     smtp_host: "${SMTP_HOST}"
     smtp_port: 587
     username: "${SMTP_USERNAME}"
@@ -151,7 +208,16 @@ notifications:
     from_addr: "${SMTP_FROM}"
     to_addrs:
       - "${ALERT_RECIPIENT}"
+
+  sendgrid:
+    enabled: true
+    api_key: "${SENDGRID_API_KEY}"
+    from_addr: "${SENDGRID_FROM}"
+    to_addrs:
+      - "${SENDGRID_RECIPIENT}"
 ```
+
+> Environment variables (`${VAR}`) are loaded from your `.env` file automatically. If a variable is unset, it defaults to an empty string and the corresponding notifier will be skipped gracefully.
 
 ---
 
@@ -172,3 +238,5 @@ python -m checker unsuppress --target https://example.com
 ```bash
 python -m pytest
 ```
+
+All 54+ tests should pass.

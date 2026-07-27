@@ -1,3 +1,4 @@
 cryptography>=42.0
 PyYAML>=6.0
 pytest>=8.0
+sendgrid>=6.10

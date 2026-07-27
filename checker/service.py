@@ -24,7 +24,7 @@ def run_checks(
     timeout: float,
     concurrency: int,
     thresholds: Thresholds,
-    now: Callable[[], datetime] = utc_now,
+    now: Callable[[], datetime] | None = None,
     sources: dict[str, CertificateSource] | None = None,
 ) -> list[CheckResult]:
     """Check all independent targets concurrently while preserving input order."""
@@ -35,7 +35,8 @@ def run_checks(
         "url": URLCertificateSource(),
     }
     target_list = list(targets)
-    current = now()
+    clock = now or utc_now
+    current = clock()
 
     def perform(spec: TargetSpec) -> list[CheckResult]:
         source = registry.get(spec.type)

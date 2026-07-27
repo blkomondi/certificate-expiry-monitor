@@ -25,8 +25,12 @@ def _iso(value: datetime | None) -> str | None:
 def result_dict(result: CheckResult) -> dict[str, object]:
     certificate = result.certificate
     return {
+        "url": result.target,
         "target": result.target,
+        "hostname": result.hostname,
+        "port": result.port,
         "status": result.severity.value,
+        "normalized_status": result.status,
         "reason_code": result.error_reason.value if result.error_reason else None,
         "message": result.message,
         "days_remaining": result.days_remaining,
@@ -35,6 +39,7 @@ def result_dict(result: CheckResult) -> dict[str, object]:
             {
                 "source": certificate.source,
                 "fingerprint": certificate.fingerprint,
+                "version": certificate.version,
                 "not_before": _iso(certificate.not_before),
                 "not_after": _iso(certificate.not_after),
                 "subject": certificate.subject,

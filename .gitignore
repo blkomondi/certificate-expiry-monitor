@@ -11,6 +11,9 @@ venv/
 ENV/
 env/
 
+# Environment files (API keys & secrets)
+.env
+
 # Pytest / Testing
 .pytest_cache/
 .pytest_tmp/

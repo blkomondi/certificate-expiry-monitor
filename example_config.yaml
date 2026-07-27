@@ -1,4 +1,5 @@
-# Secrets may be supplied as ${ENVIRONMENT_VARIABLE} values.
+# Certificate Expiry Monitor Configuration
+
 settings:
   timeout: 10
   concurrency: 8
@@ -10,30 +11,30 @@ thresholds:
   critical_days: 5
 
 targets:
-  - type: tls
-    host: example.com
-    port: 443
   - type: url
-    url: "https://api.example.com/v1/health"
-  - type: file
-    path: "./certificates/*.pem"
+    url: "https://expired.badssl.com"
 
 notifications:
   console:
     enabled: true
+
   webhook:
-    enabled: false
+    enabled: true
     url: "${CERT_WEBHOOK_URL}"
+
   email:
     enabled: false
-    smtp_host: "smtp.example.com"
+    smtp_host: "${SMTP_HOST}"
     smtp_port: 587
-    username: "${SMTP_USER}"
-    password: "${SMTP_PASS}"
-    use_tls: true
-    starttls: true
-    from_addr: "alerts@example.com"
+    username: "${SMTP_USERNAME}"
+    password: "${SMTP_PASSWORD}"
+    from_addr: "${SMTP_FROM}"
     to_addrs:
-      - "admin@example.com"
-      - "devops@example.com"
-    subject_prefix: "[Cert Alert]"
+      - "${ALERT_RECIPIENT}"
+
+  sendgrid:
+    enabled: true
+    api_key: "${SENDGRID_API_KEY}"
+    from_addr: "${SENDGRID_FROM}"
+    to_addrs:
+      - "${SENDGRID_RECIPIENT}"

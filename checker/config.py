@@ -17,12 +17,11 @@ _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def _expand_environment(value: Any) -> Any:
+    """Expand ${VAR} patterns; missing vars become empty string instead of crashing."""
     if isinstance(value, str):
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
-            if name not in os.environ:
-                raise ValueError(f"environment variable {name} is not set")
-            return os.environ[name]
+            return os.environ.get(name, "")
         return _ENV_PATTERN.sub(replace, value)
     if isinstance(value, list):
         return [_expand_environment(item) for item in value]
@@ -42,6 +41,7 @@ class Settings:
     timeout: float = 10.0
     concurrency: int = 8
     state_file: Path = Path(".certificate-monitor-state.json")
+    check_interval: int = 21600
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +56,16 @@ class EmailConfig:
     ssl: bool = False
     from_addr: str = "alerts@example.com"
     to_addrs: tuple[str, ...] = ()
-    subject_prefix: str = "[Certificate Alert]"
+    subject_prefix: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SendGridConfig:
+    enabled: bool = False
+    api_key: str | None = None
+    from_addr: str = "alerts@example.com"
+    to_addrs: tuple[str, ...] = ()
+    subject_prefix: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +74,7 @@ class NotificationsConfig:
     webhook_enabled: bool = False
     webhook_url: str | None = None
     email: EmailConfig = EmailConfig()
+    sendgrid: SendGridConfig = SendGridConfig()
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +87,13 @@ class AppConfig:
 
 def _target_from_mapping(item: dict[str, Any]) -> TargetSpec:
     kind = str(item.get("type", "")).lower()
+    if not kind:
+        if "url" in item:
+            kind = "url"
+        elif "host" in item:
+            kind = "tls"
+        elif "path" in item:
+            kind = "file"
     if kind == "tls":
         host = item.get("host")
         port = item.get("port", 443)
@@ -118,44 +135,115 @@ def load_config(path: str | Path | None) -> AppConfig:
     console_raw = notification_raw.get("console", {})
     webhook_raw = notification_raw.get("webhook", {})
     email_raw = notification_raw.get("email", {})
-    if not all(isinstance(item, dict) for item in (console_raw, webhook_raw, email_raw)):
+    sendgrid_raw = notification_raw.get("sendgrid", {})
+    if not all(isinstance(item, dict) for item in (console_raw, webhook_raw, email_raw, sendgrid_raw)):
         raise ValueError("notification channels must be mappings")
     targets_raw = raw.get("targets", [])
     if not isinstance(targets_raw, list) or not all(isinstance(item, dict) for item in targets_raw):
         raise ValueError("targets must be a list of mappings")
 
-    to_addrs_raw = email_raw.get("to_addrs", [])
-    if isinstance(to_addrs_raw, str):
-        to_addrs_list = [to_addrs_raw]
-    elif isinstance(to_addrs_raw, list):
-        to_addrs_list = [str(x) for x in to_addrs_raw]
+    # Email env overrides
+    smtp_host = os.environ.get("SMTP_HOST") or email_raw.get("smtp_host")
+    smtp_port_raw = os.environ.get("SMTP_PORT") or email_raw.get("smtp_port", 587)
+    smtp_port = int(smtp_port_raw)
+    username = os.environ.get("SMTP_USERNAME") or email_raw.get("username")
+    password = os.environ.get("SMTP_PASSWORD") or email_raw.get("password")
+    from_addr = os.environ.get("SMTP_FROM") or email_raw.get("from_addr", "alerts@example.com")
+
+    env_recipients = os.environ.get("ALERT_RECIPIENT") or os.environ.get("ALERT_RECIPIENTS")
+    if env_recipients:
+        to_addrs_list = [r.strip() for r in env_recipients.split(",") if r.strip()]
     else:
-        to_addrs_list = []
+        to_addrs_raw = email_raw.get("to_addrs", [])
+        if isinstance(to_addrs_raw, str):
+            to_addrs_list = [to_addrs_raw] if to_addrs_raw.strip() else []
+        elif isinstance(to_addrs_raw, list):
+            to_addrs_list = [str(x) for x in to_addrs_raw if str(x).strip()]
+        else:
+            to_addrs_list = []
+
+    # SendGrid config
+    sendgrid_api_key = os.environ.get("SENDGRID_API_KEY") or sendgrid_raw.get("api_key")
+    sendgrid_from_addr = os.environ.get("SENDGRID_FROM") or sendgrid_raw.get("from_addr", "alerts@example.com")
+
+    env_sg_recipients = os.environ.get("SENDGRID_RECIPIENT") or os.environ.get("SENDGRID_RECIPIENTS")
+    if env_sg_recipients:
+        sg_to_addrs_list = [r.strip() for r in env_sg_recipients.split(",") if r.strip()]
+    else:
+        sg_to_addrs_raw = sendgrid_raw.get("to_addrs", [])
+        if isinstance(sg_to_addrs_raw, str):
+            sg_to_addrs_list = [sg_to_addrs_raw] if sg_to_addrs_raw.strip() else []
+        elif isinstance(sg_to_addrs_raw, list):
+            sg_to_addrs_list = [str(x) for x in sg_to_addrs_raw if str(x).strip()]
+        else:
+            sg_to_addrs_list = []
+
+    sendgrid_enabled = bool(sendgrid_raw.get("enabled", False)) or bool(sendgrid_api_key)
+
+    sendgrid_config = SendGridConfig(
+        enabled=sendgrid_enabled,
+        api_key=sendgrid_api_key,
+        from_addr=sendgrid_from_addr,
+        to_addrs=tuple(sg_to_addrs_list),
+        subject_prefix=sendgrid_raw.get("subject_prefix"),
+    )
+
+    email_enabled = bool(email_raw.get("enabled", False)) or bool(smtp_host)
 
     email_config = EmailConfig(
-        enabled=bool(email_raw.get("enabled", False)),
-        smtp_host=email_raw.get("smtp_host"),
-        smtp_port=int(email_raw.get("smtp_port", 587)),
-        username=email_raw.get("username"),
-        password=email_raw.get("password"),
+        enabled=email_enabled,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        username=username,
+        password=password,
         use_tls=bool(email_raw.get("use_tls", True)),
         starttls=bool(email_raw.get("starttls", True)),
         ssl=bool(email_raw.get("ssl", False)),
-        from_addr=str(email_raw.get("from_addr", "alerts@example.com")),
+        from_addr=from_addr,
         to_addrs=tuple(to_addrs_list),
-        subject_prefix=str(email_raw.get("subject_prefix", "[Certificate Alert]")),
+        subject_prefix=email_raw.get("subject_prefix"),
     )
+
+    # Threshold overrides from ALERT_THRESHOLDS if set
+    env_thresholds = os.environ.get("ALERT_THRESHOLDS")
+    if env_thresholds:
+        try:
+            t_vals = sorted([int(t.strip()) for t in env_thresholds.split(",") if t.strip()], reverse=True)
+            if t_vals:
+                warning_days = t_vals[0]
+                critical_days = t_vals[-1]
+                high_days = t_vals[len(t_vals) // 2] if len(t_vals) > 2 else critical_days
+                custom_days = tuple(t_vals)
+            else:
+                warning_days = int(threshold_raw.get("warning_days", 30))
+                high_days = int(threshold_raw.get("high_days", 15))
+                critical_days = int(threshold_raw.get("critical_days", 5))
+                custom_days = (30, 14, 7, 3, 1)
+        except ValueError:
+            warning_days = int(threshold_raw.get("warning_days", 30))
+            high_days = int(threshold_raw.get("high_days", 15))
+            critical_days = int(threshold_raw.get("critical_days", 5))
+            custom_days = (30, 14, 7, 3, 1)
+    else:
+        warning_days = int(threshold_raw.get("warning_days", 30))
+        high_days = int(threshold_raw.get("high_days", 15))
+        critical_days = int(threshold_raw.get("critical_days", 5))
+        custom_days = (30, 14, 7, 3, 1)
+
+    interval_raw = os.environ.get("CHECK_INTERVAL") or settings_raw.get("check_interval", 21600)
 
     return AppConfig(
         settings=Settings(
             timeout=float(settings_raw.get("timeout", 10)),
             concurrency=int(settings_raw.get("concurrency", 8)),
             state_file=Path(settings_raw.get("state_file", ".certificate-monitor-state.json")),
+            check_interval=int(interval_raw),
         ),
         thresholds=Thresholds(
-            warning_days=int(threshold_raw.get("warning_days", 30)),
-            high_days=int(threshold_raw.get("high_days", 15)),
-            critical_days=int(threshold_raw.get("critical_days", 5)),
+            warning_days=warning_days,
+            high_days=high_days,
+            critical_days=critical_days,
+            custom_days=custom_days,
         ),
         targets=tuple(_target_from_mapping(item) for item in targets_raw),
         notifications=NotificationsConfig(
@@ -163,6 +251,7 @@ def load_config(path: str | Path | None) -> AppConfig:
             webhook_enabled=bool(webhook_raw.get("enabled", False)),
             webhook_url=webhook_raw.get("url"),
             email=email_config,
+            sendgrid=sendgrid_config,
         ),
     )
 
@@ -177,7 +266,7 @@ def apply_cli_overrides(
     concurrency: int | None = None,
     state_file: str | None = None,
 ) -> AppConfig:
-    """Apply only explicit command-line values, giving flags config precedence."""
+    """Apply explicit command-line values, giving flags config precedence."""
 
     cli_targets = (
         tuple(TargetSpec("tls", value) for value in (domains or []))
@@ -188,6 +277,7 @@ def apply_cli_overrides(
         timeout=timeout if timeout is not None else config.settings.timeout,
         concurrency=concurrency if concurrency is not None else config.settings.concurrency,
         state_file=Path(state_file) if state_file is not None else config.settings.state_file,
+        check_interval=config.settings.check_interval,
     )
     if settings.timeout <= 0 or settings.concurrency <= 0:
         raise ValueError("timeout and concurrency must be positive")

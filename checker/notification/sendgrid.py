@@ -1,12 +1,12 @@
-"""SMTP Email notification channel."""
+"""SendGrid API notification channel (HTTPS/443, bypasses ISP SMTP blocking)."""
 
 from __future__ import annotations
 
-import smtplib
-import ssl
 from dataclasses import dataclass, field
 from datetime import UTC
-from email.mime.text import MIMEText
+
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 from ..models import CheckResult, Severity
 from ..output import to_table
@@ -19,17 +19,19 @@ def _format_utc(dt: object) -> str:
     return utc_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def _build_email_body(result: CheckResult) -> str:
-    """Build the plain-text email body including terminal-style table and details."""
+def _build_alert_content(result: CheckResult) -> tuple[str, str]:
+    """Build (subject, plain_text_body) for a certificate alert."""
     hostname = result.hostname
     certificate = result.certificate
     status_str = result.status
 
     is_expired = result.severity == Severity.EXPIRED
     if is_expired:
+        subject = f"URGENT: TLS Certificate Expired: {hostname}"
         header_title = "URGENT: TLS Certificate Expired"
         footer = "This certificate has expired!"
     else:
+        subject = f"TLS Certificate Expiry Alert: {hostname}"
         header_title = "TLS Certificate Expiry Alert"
         footer = "This certificate is approaching its expiry date."
 
@@ -60,60 +62,40 @@ def _build_email_body(result: CheckResult) -> str:
         f"Status: {status_str}",
         footer,
     ]
-    return "\n".join(lines)
+    return subject, "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
-class EmailNotifier:
-    """Deliver alert notifications via SMTP email."""
+class SendGridNotifier:
+    """Deliver alert notifications via SendGrid REST API over HTTPS.
 
-    smtp_host: str
-    smtp_port: int = 587
-    username: str | None = None
-    password: str | None = None
-    use_tls: bool = True
-    starttls: bool = True
-    ssl: bool = False
-    from_addr: str = "alerts@example.com"
+    This bypasses ISP SMTP port blocking by using port 443.
+    Requires a SendGrid API key and a verified sender email address.
+    """
+
+    api_key: str
+    from_addr: str
     to_addrs: tuple[str, ...] = field(default_factory=tuple)
     subject_prefix: str | None = None
-    timeout: float = 10.0
 
     def notify(self, result: CheckResult) -> None:
         if not self.to_addrs:
             return
 
-        hostname = result.hostname
-        is_expired = result.severity == Severity.EXPIRED
-        if is_expired:
-            subject = f"URGENT: TLS Certificate Expired: {hostname}"
-        else:
-            subject = f"TLS Certificate Expiry Alert: {hostname}"
+        subject, body = _build_alert_content(result)
 
         if self.subject_prefix:
             subject = f"{self.subject_prefix} {subject}"
 
-        body = _build_email_body(result)
+        message = Mail(
+            from_email=self.from_addr,
+            to_emails=list(self.to_addrs),
+            subject=subject,
+            plain_text_content=body,
+        )
 
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["Subject"] = subject
-        msg["From"] = self.from_addr
-        msg["To"] = ", ".join(self.to_addrs)
+        sg = SendGridAPIClient(self.api_key)
+        response = sg.send(message)
 
-        recipients = list(self.to_addrs)
-        msg_str = msg.as_string()
-
-        ssl_context = ssl.create_default_context()
-
-        if self.ssl:
-            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=self.timeout, context=ssl_context) as server:
-                if self.username and self.password:
-                    server.login(self.username, self.password)
-                server.sendmail(self.from_addr, recipients, msg_str)
-        else:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=self.timeout) as server:
-                if self.starttls or self.use_tls:
-                    server.starttls(context=ssl_context)
-                if self.username and self.password:
-                    server.login(self.username, self.password)
-                server.sendmail(self.from_addr, recipients, msg_str)
+        if response.status_code >= 400:
+            raise OSError(f"SendGrid API returned HTTP {response.status_code}")

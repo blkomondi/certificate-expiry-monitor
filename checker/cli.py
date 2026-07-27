@@ -5,12 +5,15 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from datetime import UTC, datetime
 from typing import Sequence
 
+from .api import create_api_server
 from .config import AppConfig, apply_cli_overrides, load_config
+from .env import load_dotenv
 from .evaluation import utc_now
-from .notification import ConsoleNotifier, EmailNotifier, WebhookNotifier
+from .notification import ConsoleNotifier, EmailNotifier, SendGridNotifier, WebhookNotifier
 from .output import to_json, to_prometheus, to_table
 from .service import dispatch_alerts, exit_code, run_checks
 from .state import AlertState, JsonStateStore, Suppression
@@ -20,7 +23,12 @@ LOG = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Monitor TLS, URL, and local certificate expiry.")
-    parser.add_argument("command", nargs="?", default="check", choices=("check", "acknowledge", "suppress", "unsuppress"))
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="check",
+        choices=("check", "monitor", "serve", "acknowledge", "suppress", "unsuppress"),
+    )
     parser.add_argument("--config", help="YAML or JSON configuration file")
     parser.add_argument("--domain", action="append", help="TLS target in host:port form; may be repeated")
     parser.add_argument("--url", action="append", help="URL target (e.g. https://example.com/api); may be repeated")
@@ -31,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quiet", action="store_true", help="only emit errors to stderr")
     parser.add_argument("--timeout", type=float, help="per-target TLS timeout in seconds")
     parser.add_argument("--concurrency", type=int, help="maximum parallel target checks")
+    parser.add_argument("--interval", type=int, help="check interval in seconds for monitor mode (default: 21600)")
+    parser.add_argument("--port", type=int, default=8000, help="HTTP API server port for serve mode (default: 8000)")
+    parser.add_argument("--once", action="store_true", help="run single iteration in monitor mode (for testing)")
     parser.add_argument("--force-notify", action="store_true", help="send eligible alerts even if their tier was previously sent")
     parser.add_argument("--state-file", help="override persistent JSON state path")
     parser.add_argument("--target", help="target to suppress or unsuppress")
@@ -83,6 +94,22 @@ def _notifiers(config: AppConfig) -> list[object]:
                 timeout=config.settings.timeout,
             )
         )
+    if config.notifications.sendgrid.enabled:
+        sg_cfg = config.notifications.sendgrid
+        if not sg_cfg.api_key:
+            raise ValueError("sendgrid notification is enabled but no api_key was configured")
+        if not sg_cfg.to_addrs:
+            raise ValueError("sendgrid notification is enabled but no to_addrs were configured")
+        if not sg_cfg.from_addr:
+            raise ValueError("sendgrid notification is enabled but no from_addr was configured")
+        channels.append(
+            SendGridNotifier(
+                api_key=sg_cfg.api_key,
+                from_addr=sg_cfg.from_addr,
+                to_addrs=sg_cfg.to_addrs,
+                subject_prefix=sg_cfg.subject_prefix,
+            )
+        )
     return channels
 
 
@@ -109,10 +136,55 @@ def _render(format_name: str, results: list[object]) -> str:
     return to_table(results)  # type: ignore[arg-type]
 
 
+def _run_monitor_loop(config: AppConfig, store: JsonStateStore, interval: int, once: bool = False) -> int:
+    LOG.info("Starting scheduled monitor loop with interval of %d seconds", interval)
+    print(f"Starting certificate expiry monitor loop (interval: {interval}s)...")
+    try:
+        while True:
+            results = run_checks(
+                config.targets,
+                timeout=config.settings.timeout,
+                concurrency=config.settings.concurrency,
+                thresholds=config.thresholds,
+            )
+            sys.stdout.write(_render("table", results))
+            try:
+                state = store.load()
+                now = utc_now()
+                dispatch_alerts(
+                    results,
+                    state=state,
+                    notifiers=_notifiers(config),
+                    now=now,
+                    force=False,
+                    dry_run=False,
+                )
+                store.save(state)
+            except Exception as exc:
+                LOG.error("error during alert dispatch: %s", exc)
+            if once:
+                break
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nStopping monitor loop.")
+    return 0
+
+
+def _run_api_server(config: AppConfig, port: int) -> int:
+    server = create_api_server(config, port=port)
+    print(f"Starting Certificate Monitor API server on http://127.0.0.1:{port}/api/monitors")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.server_close()
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging(args.verbose, args.quiet)
     try:
+        load_dotenv()
         config = apply_cli_overrides(
             load_config(args.config),
             domains=args.domain,
@@ -123,9 +195,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             state_file=args.state_file,
         )
         store = JsonStateStore(config.settings.state_file)
-        if args.command != "check":
+
+        if args.command in ("acknowledge", "suppress", "unsuppress"):
             return _state_command(args, store)
 
+        if args.command == "monitor":
+            interval = args.interval if args.interval is not None else config.settings.check_interval
+            return _run_monitor_loop(config, store, interval, once=args.once)
+
+        if args.command == "serve":
+            return _run_api_server(config, port=args.port)
+
+        # Default "check" command
         results = run_checks(
             config.targets,
             timeout=config.settings.timeout,

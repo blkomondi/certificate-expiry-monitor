@@ -11,11 +11,16 @@ from tests.conftest import FakeClock, make_certificate
 
 
 def _warning_result(now):
-    info = parse_certificate_bytes(make_certificate(now, days=25), target="https://example.com/api", source="url")
+    info = parse_certificate_bytes(make_certificate(now, days=14), target="https://example.com", source="url")
     return evaluate_certificate(info, Thresholds(), FakeClock(now))
 
 
-def test_email_notifier_starttls(monkeypatch, now) -> None:
+def _expired_result(now):
+    info = parse_certificate_bytes(make_certificate(now, days=-5), target="https://example.com", source="url")
+    return evaluate_certificate(info, Thresholds(), FakeClock(now))
+
+
+def test_email_notifier_starttls_and_content(monkeypatch, now) -> None:
     sent_messages: list[dict[str, object]] = []
 
     class FakeSMTP:
@@ -32,7 +37,7 @@ def test_email_notifier_starttls(monkeypatch, now) -> None:
         def __exit__(self, *args):
             return False
 
-        def starttls(self):
+        def starttls(self, *, context=None):
             self.started_tls = True
 
         def login(self, user, password):
@@ -57,7 +62,6 @@ def test_email_notifier_starttls(monkeypatch, now) -> None:
         password="secretpassword",
         from_addr="alerts@example.test",
         to_addrs=("admin@example.test", "dev@example.test"),
-        subject_prefix="[Custom Alert]",
     )
 
     result = _warning_result(now)
@@ -71,17 +75,28 @@ def test_email_notifier_starttls(monkeypatch, now) -> None:
     assert msg_data["logged_in"] is True
 
     parsed_msg = email.message_from_string(str(msg_data["msg"]))
-    assert parsed_msg["Subject"] == "[Custom Alert] [WARNING] Target: https://example.com/api"
+    assert parsed_msg["Subject"] == "TLS Certificate Expiry Alert: example.com"
     payload_text = parsed_msg.get_payload(decode=True).decode("utf-8")
-    assert "Days Remaining: 25" in payload_text
-    assert "Target: https://example.com/api" in payload_text
+    # Terminal table output included
+    assert "TARGET" in payload_text
+    assert "STATUS" in payload_text
+    assert "DAYS" in payload_text
+    assert "EXPIRES" in payload_text
+    assert "CHAIN" in payload_text
+    # Detail fields
+    assert "URL: https://example.com" in payload_text
+    assert "Hostname: example.com" in payload_text
+    assert "Port: 443" in payload_text
+    assert "Remaining: 14 days" in payload_text
+    assert "Status: EXPIRING_SOON" in payload_text
 
 
-def test_email_notifier_ssl(monkeypatch, now) -> None:
+
+def test_email_notifier_urgent_expired(monkeypatch, now) -> None:
     sent_messages: list[dict[str, object]] = []
 
     class FakeSMTPSSL:
-        def __init__(self, host: str, port: int, timeout: float):
+        def __init__(self, host: str, port: int, *, timeout: float, context=None):
             self.host = host
             self.port = port
             self.timeout = timeout
@@ -109,5 +124,34 @@ def test_email_notifier_ssl(monkeypatch, now) -> None:
         to_addrs=("admin@example.test",),
     )
 
-    notifier.notify(_warning_result(now))
+    notifier.notify(_expired_result(now))
     assert len(sent_messages) == 1
+    parsed_msg = email.message_from_string(str(sent_messages[0]["msg"]))
+    assert "URGENT: TLS Certificate Expired: example.com" in parsed_msg["Subject"]
+    payload_text = parsed_msg.get_payload(decode=True).decode("utf-8")
+    assert "Status: EXPIRED" in payload_text
+    assert "This certificate has expired!" in payload_text
+
+
+def test_email_notifier_smtp_failure(monkeypatch, now) -> None:
+    class FailingSMTP:
+        def __init__(self, host: str, port: int, timeout: float):
+            pass
+
+        def __enter__(self):
+            raise OSError("SMTP connection failed")
+
+        def __exit__(self, *args):
+            return False
+
+    import smtplib
+    monkeypatch.setattr(smtplib, "SMTP", FailingSMTP)
+
+    notifier = EmailNotifier(
+        smtp_host="smtp.failing.test",
+        from_addr="alerts@example.test",
+        to_addrs=("admin@example.test",),
+    )
+
+    with pytest.raises(OSError, match="SMTP connection failed"):
+        notifier.notify(_warning_result(now))
