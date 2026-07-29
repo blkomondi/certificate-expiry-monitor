@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 title Certificate Expiry Monitor
 cd /d "%~dp0"
 
@@ -24,14 +25,15 @@ echo ============================================
 echo.
 echo Commands:
 echo   1) Quick check (default targets)
-echo   2) Check custom URL
+echo   2) Check custom URL(s) - multiple allowed!
 echo   3) Continuous monitor mode
 echo   4) Start API server
 echo   5) Dry-run (no email sent)
+echo   6) One-shot check (exits after)
 echo   0) Exit
 echo.
 
-set /p CHOICE="Select option (0-5): "
+set /p CHOICE="Select option (0-6): "
 
 REM Remove any spaces
 set CHOICE=%CHOICE: =%
@@ -42,19 +44,13 @@ if "%CHOICE%"=="1" (
     python -m checker --config example_config.yaml
     echo.
     echo [*] Check complete.
-    pause
-    exit /b
+    echo.
+    echo Press any key to return to menu...
+    pause >nul
+    goto menu
 )
 
-if "%CHOICE%"=="2" (
-    set /p URL="Enter URL to check (e.g. https://google.com): "
-    echo.
-    echo [*] Checking: %URL%
-    python -m checker --url "%URL%" --verbose
-    echo.
-    pause
-    exit /b
-)
+if "%CHOICE%"=="2" goto check_url_handler
 
 if "%CHOICE%"=="3" (
     set /p INTERVAL="Check interval in seconds (default 21600 = 6 hours): "
@@ -64,8 +60,11 @@ if "%CHOICE%"=="3" (
     echo [*] Press Ctrl+C to stop.
     echo.
     python -m checker monitor --config example_config.yaml --interval %INTERVAL%
-    pause
-    exit /b
+    echo.
+    echo [*] Monitor stopped.
+    echo Press any key to return to menu...
+    pause >nul
+    goto menu
 )
 
 if "%CHOICE%"=="4" (
@@ -76,8 +75,11 @@ if "%CHOICE%"=="4" (
     echo [*] Press Ctrl+C to stop.
     echo.
     python -m checker serve --config example_config.yaml --port %PORT%
-    pause
-    exit /b
+    echo.
+    echo [*] Server stopped.
+    echo Press any key to return to menu...
+    pause >nul
+    goto menu
 )
 
 if "%CHOICE%"=="5" (
@@ -85,8 +87,10 @@ if "%CHOICE%"=="5" (
     echo [*] Running dry-run check (no emails sent)...
     python -m checker --config example_config.yaml --dry-run --verbose
     echo.
-    pause
-    exit /b
+    echo [*] Dry-run complete.
+    echo Press any key to return to menu...
+    pause >nul
+    goto menu
 )
 
 if "%CHOICE%"=="0" (
@@ -94,9 +98,56 @@ if "%CHOICE%"=="0" (
     exit /b 0
 )
 
+if "%CHOICE%"=="6" (
+    set /p URL="Enter URL to check (e.g. https://google.com): "
+    if "%URL%"=="" (
+        echo [!] No URL entered.
+        timeout /t 2 >nul
+        goto menu
+    )
+    echo.
+    python -m checker --url "%URL%"
+    echo.
+    pause
+    exit /b
+)
+
 REM Invalid choice
 echo.
 echo [!] Invalid option "%CHOICE%"
 echo Press any key to try again...
 pause >nul
+goto menu
+
+
+REM ============================================
+REM  Custom URL check handler (loop)
+REM  Label is OUTSIDE the if block for safety
+REM ============================================
+:check_url_handler
+:check_url_loop
+set URL=
+set /p URL="Enter URL to check (e.g. https://google.com): "
+if "%URL%"=="" (
+    echo [!] No URL entered. Returning to menu...
+    timeout /t 2 >nul
+    goto menu
+)
+echo.
+echo [*] Checking: %URL%
+echo.
+python -m checker --url "%URL%" --verbose
+echo.
+echo ============================================
+echo  Result for: %URL%
+echo ============================================
+echo.
+set ANOTHER=
+set /p ANOTHER="Check another URL? (Y/n): "
+if /i "!ANOTHER!"=="" goto check_url_loop
+if /i "!ANOTHER!"=="y" goto check_url_loop
+if /i "!ANOTHER!"=="yes" goto check_url_loop
+echo.
+echo Returning to main menu...
+timeout /t 1 >nul
 goto menu
