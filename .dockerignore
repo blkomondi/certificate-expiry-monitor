@@ -1,0 +1,46 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Tests & tooling
+tests/
+.pytest_cache/
+.pytest_tmp/
+.coverage
+htmlcov/
+
+# Local state, logs, and generated files
+.certificate-monitor-state.json
+*.log
+outputs/
+cmd.txt
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local helper scripts not shipped in the image
+launch_cem.bat
+cem_email_sender.py
+diagnose.py
+diagnose2.py

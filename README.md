@@ -57,6 +57,107 @@ Double-click `launch_cem.bat` to open an interactive menu:
 
 ---
 
+## Docker
+
+Run CEM as a container — no Python installation needed.
+
+### Prerequisites
+
+- Docker with Docker Compose (Compose v2.24+ supports optional `.env` files)
+
+### Build the image
+
+```bash
+docker build -t cem .
+```
+
+### One-off check
+
+Mount your `config.yaml` (read-only) and keep alert state in a named volume:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/config.yaml:/app/config.yaml:ro" \
+  -v cem-state:/app/data \
+  cem check --config /app/config.yaml --state-file /app/data/certificate-monitor-state.json
+```
+
+No config file? Targets can be passed directly:
+
+```bash
+docker run --rm cem --url https://example.com --format json
+```
+
+### Continuous background monitor
+
+```bash
+docker run -d --restart unless-stopped --name cem-monitor \
+  -v "$(pwd)/config.yaml:/app/config.yaml:ro" \
+  -v cem-state:/app/data \
+  cem monitor --config /app/config.yaml --state-file /app/data/certificate-monitor-state.json
+```
+
+### HTTP REST API server
+
+The API server must bind `0.0.0.0` inside the container to be reachable from your host:
+
+```bash
+docker run -d --restart unless-stopped --name cem-api \
+  -p 8000:8000 \
+  -v "$(pwd)/config.yaml:/app/config.yaml:ro" \
+  cem serve --config /app/config.yaml --host 0.0.0.0 --port 8000
+
+curl http://localhost:8000/api/monitors
+```
+
+### Docker Compose (recommended)
+
+Compose wires up config mounting, state persistence, and port mapping for you. It runs out of the box using the project's `example_config.yaml` — no setup required. To use your own configuration, either edit `example_config.yaml` or point the `CONFIG_FILE` variable at your file, e.g. `CONFIG_FILE=config.yaml docker compose run --rm cem`. Then:
+
+```bash
+# One-off check (uses example_config.yaml by default; the first run builds the image)
+docker compose run --rm cem
+
+# Continuous monitor (background)
+docker compose --profile monitor up -d
+
+# REST API server on http://localhost:8000 (background)
+docker compose --profile api up -d
+
+# View API logs
+docker compose --profile api logs -f
+
+# Stop everything
+docker compose --profile cli --profile monitor --profile api down
+```
+
+> **Note:** the example config enables the webhook and SendGrid notification channels, which need credentials in your `.env` file (see [Email Alerts & Environment Configuration](#email-alerts--environment-configuration-1)). Without them the check still prints its results, but it reports a notification-setup error and exits non-zero. For a quick smoke test with no credentials at all, pass targets directly:
+
+```bash
+docker compose run --rm cem check --url https://example.com
+```
+
+### Passing secrets & env vars
+
+Secrets and settings are read from your `.env` file automatically (see [Email Alerts & Environment Configuration](#email-alerts--environment-configuration-1)). With Compose, place `.env` next to `docker-compose.yml`. With plain `docker run`, pass them explicitly:
+
+```bash
+docker run --rm \
+  -e SENDGRID_API_KEY=SG.xxx \
+  -e SENDGRID_FROM=alerts@example.com \
+  -e ALERT_RECIPIENT=admin@example.com \
+  -e CHECK_INTERVAL=21600 \
+  cem --url https://example.com
+```
+
+### Notes
+
+- The container runs as an **unprivileged user** (`cem`), not root.
+- `/app/data` is the designated persistent volume: keep the JSON state file there (as in the commands above) so alert suppression survives container restarts.
+- To monitor local certificate files, mount them read-only and reference the container path, e.g. `-v "$(pwd)/certs:/certs:ro" cem --file /certs/*.pem`.
+
+---
+
 ## How to Check URLs
 
 ### 1. Check URLs directly from Terminal

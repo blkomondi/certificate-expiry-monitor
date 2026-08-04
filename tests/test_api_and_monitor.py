@@ -58,3 +58,26 @@ def test_run_monitor_loop_once(tmp_path) -> None:
     config = AppConfig(settings=Settings(state_file=state_file))
     code = _run_monitor_loop(config, store, interval=1, once=True)
     assert code == 0
+
+
+def test_serve_accepts_host_flag(monkeypatch) -> None:
+    import checker.cli as cli_module
+
+    captured: dict[str, object] = {}
+
+    class FakeServer:
+        def serve_forever(self) -> None:
+            raise KeyboardInterrupt
+
+        def server_close(self) -> None:
+            pass
+
+    def fake_create_api_server(config, host="127.0.0.1", port=8000):
+        captured["host"] = host
+        captured["port"] = port
+        return FakeServer()
+
+    monkeypatch.setattr(cli_module, "create_api_server", fake_create_api_server)
+    code = cli_module.main(["serve", "--host", "0.0.0.0", "--port", "9000"])
+    assert code == 0
+    assert captured == {"host": "0.0.0.0", "port": 9000}

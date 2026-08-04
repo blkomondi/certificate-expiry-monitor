@@ -1,0 +1,76 @@
+# Certificate Expiry Monitor (CEM) — Docker Compose.
+#
+# Quick start:
+#   docker compose run --rm cem                    # one-off check (example config)
+#   docker compose --profile monitor up -d         # continuous monitor (background)
+#   docker compose --profile api up -d             # REST API server on http://localhost:8000
+#
+# Out of the box this mounts the bundled example_config.yaml, so it runs with
+# no setup. To use your own config, either edit example_config.yaml or point
+# CONFIG_FILE at your file, e.g.:  CONFIG_FILE=config.yaml docker compose run --rm cem
+# Secrets are read from your .env file (see README). Persistent alert state is
+# kept in the cem-state volume so suppression survives container restarts.
+#
+# The base `cem` service lives in the `cli` profile so that profile runs of the
+# monitor/api services never start it (and thus never re-run a one-off check).
+
+services:
+  cem:
+    build: .
+    image: cem:latest
+    profiles: ["cli"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ${CONFIG_FILE:-./example_config.yaml}:/app/config.yaml:ro
+      - cem-state:/app/data
+    command:
+      - check
+      - --config
+      - /app/config.yaml
+      - --state-file
+      - /app/data/certificate-monitor-state.json
+
+  cem-monitor:
+    image: cem:latest
+    profiles: ["monitor"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ${CONFIG_FILE:-./example_config.yaml}:/app/config.yaml:ro
+      - cem-state:/app/data
+    command:
+      - monitor
+      - --config
+      - /app/config.yaml
+      - --state-file
+      - /app/data/certificate-monitor-state.json
+
+  cem-api:
+    image: cem:latest
+    profiles: ["api"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ${CONFIG_FILE:-./example_config.yaml}:/app/config.yaml:ro
+      - cem-state:/app/data
+    ports:
+      - "8000:8000"
+    command:
+      - serve
+      - --config
+      - /app/config.yaml
+      - --state-file
+      - /app/data/certificate-monitor-state.json
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+
+volumes:
+  cem-state:

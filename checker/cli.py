@@ -41,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--concurrency", type=int, help="maximum parallel target checks")
     parser.add_argument("--interval", type=int, help="check interval in seconds for monitor mode (default: 21600)")
     parser.add_argument("--port", type=int, default=8000, help="HTTP API server port for serve mode (default: 8000)")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="bind address for serve mode (use 0.0.0.0 to expose inside a container; default: 127.0.0.1)",
+    )
     parser.add_argument("--once", action="store_true", help="run single iteration in monitor mode (for testing)")
     parser.add_argument("--force-notify", action="store_true", help="send eligible alerts even if their tier was previously sent")
     parser.add_argument("--state-file", help="override persistent JSON state path")
@@ -170,9 +175,9 @@ def _run_monitor_loop(config: AppConfig, store: JsonStateStore, interval: int, o
     return 0
 
 
-def _run_api_server(config: AppConfig, port: int) -> int:
-    server = create_api_server(config, port=port)
-    print(f"Starting Certificate Monitor API server on http://127.0.0.1:{port}/api/monitors")
+def _run_api_server(config: AppConfig, host: str, port: int) -> int:
+    server = create_api_server(config, host=host, port=port)
+    print(f"Starting Certificate Monitor API server on http://{host}:{port}/api/monitors")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -204,7 +209,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_monitor_loop(config, store, interval, once=args.once)
 
         if args.command == "serve":
-            return _run_api_server(config, port=args.port)
+            return _run_api_server(config, host=args.host, port=args.port)
 
         # Default "check" command
         results = run_checks(
