@@ -14,21 +14,27 @@ targets:
   - type: url
     url: "https://expired.badssl.com"
 
+  - type: file
+    path: "expired.crt"
+
 notifications:
   console:
     enabled: true
 
   webhook:
-    enabled: true
-    url: "${CERT_WEBHOOK_URL}"
+    enabled: false
+    url: ""
 
   email:
-    enabled: false
-    smtp_host: "${SMTP_HOST}"
-    smtp_port: 587
-    username: "${SMTP_USERNAME}"
-    password: "${SMTP_PASSWORD}"
-    from_addr: "${SMTP_FROM}"
+    enabled: true
+    smtp_host: "192.168.12.16"
+    smtp_port: 25
+    username: ""
+    password: ""
+    use_tls: false
+    starttls: false
+    ssl: false
+    from_addr: "ecollect@sidianbank.co.ke"
     to_addrs:
       - "${ALERT_RECIPIENT}"
 

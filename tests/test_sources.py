@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import socket
 
 import pytest
@@ -101,6 +102,77 @@ def test_tls_source_converts_handshake_failure_to_result(monkeypatch) -> None:
     monkeypatch.setattr(tls.ssl, "_create_unverified_context", lambda: Context())
     result = TLSCertificateSource().check("example.test:443", timeout=1)[0]
     assert result.error_reason is ErrorReason.TLS_HANDSHAKE_FAILURE
+
+
+def test_tls_source_hints_when_handshake_is_reset(monkeypatch) -> None:
+    import checker.sources.tls as tls
+
+    class Raw:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class Context:
+        check_hostname = False
+
+        def wrap_socket(self, *args, **kwargs):
+            raise ConnectionResetError(10054, "connection reset by peer")
+
+    monkeypatch.setattr(tls.socket, "create_connection", lambda *args, **kwargs: Raw())
+    monkeypatch.setattr(tls.ssl, "_create_unverified_context", lambda: Context())
+    result = TLSCertificateSource().check("example.test:443", timeout=1)[0]
+    assert result.error_reason is ErrorReason.TLS_HANDSHAKE_RESET
+    assert result.status == "TLS_ERROR"
+    assert "reset by the server" in result.message
+    assert "blocking automated" in result.message
+
+
+def test_tls_source_keeps_timeout_taxonomy_during_handshake(monkeypatch) -> None:
+    import checker.sources.tls as tls
+
+    class Raw:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class Context:
+        check_hostname = False
+
+        def wrap_socket(self, *args, **kwargs):
+            raise socket.timeout("handshake stalled")
+
+    monkeypatch.setattr(tls.socket, "create_connection", lambda *args, **kwargs: Raw())
+    monkeypatch.setattr(tls.ssl, "_create_unverified_context", lambda: Context())
+    result = TLSCertificateSource().check("example.test:443", timeout=1)[0]
+    assert result.error_reason is ErrorReason.TIMEOUT
+    assert result.message == "TLS handshake timed out"
+
+
+def test_tls_source_keeps_generic_message_for_other_handshake_errors(monkeypatch) -> None:
+    import checker.sources.tls as tls
+
+    class Raw:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class Context:
+        check_hostname = False
+
+        def wrap_socket(self, *args, **kwargs):
+            raise OSError(errno.ECONNABORTED, "connection aborted")
+
+    monkeypatch.setattr(tls.socket, "create_connection", lambda *args, **kwargs: Raw())
+    monkeypatch.setattr(tls.ssl, "_create_unverified_context", lambda: Context())
+    result = TLSCertificateSource().check("example.test:443", timeout=1)[0]
+    assert result.error_reason is ErrorReason.TLS_HANDSHAKE_FAILURE
+    assert result.message == "TLS handshake failed"
 
 
 def test_host_port_parsing_supports_ipv6() -> None:

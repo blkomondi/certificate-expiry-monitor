@@ -25,10 +25,12 @@ def _build_email_body(result: CheckResult) -> str:
     certificate = result.certificate
     status_str = result.status
 
-    is_expired = result.severity == Severity.EXPIRED
-    if is_expired:
+    if result.severity == Severity.EXPIRED:
         header_title = "URGENT: TLS Certificate Expired"
         footer = "This certificate has expired!"
+    elif result.severity == Severity.ERROR:
+        header_title = "TLS Certificate Monitoring Error"
+        footer = f"The certificate could not be checked: {result.message}"
     else:
         header_title = "TLS Certificate Expiry Alert"
         footer = "This certificate is approaching its expiry date."
@@ -84,9 +86,10 @@ class EmailNotifier:
             return
 
         hostname = result.hostname
-        is_expired = result.severity == Severity.EXPIRED
-        if is_expired:
+        if result.severity == Severity.EXPIRED:
             subject = f"URGENT: TLS Certificate Expired: {hostname}"
+        elif result.severity == Severity.ERROR:
+            subject = f"TLS Certificate Monitoring Error: {hostname}"
         else:
             subject = f"TLS Certificate Expiry Alert: {hostname}"
 

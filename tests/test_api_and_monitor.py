@@ -35,6 +35,7 @@ def test_api_server_get_and_post(tmp_path, now, monkeypatch) -> None:
             assert len(data) == 1
             assert data[0]["daysRemaining"] == 15
             assert data[0]["status"] == "EXPIRING_SOON"
+            assert data[0]["reasonCode"] is None
 
         # POST /api/monitors
         req = Request(

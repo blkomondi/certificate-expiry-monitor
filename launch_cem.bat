@@ -3,19 +3,19 @@ setlocal enabledelayedexpansion
 title Certificate Expiry Monitor
 cd /d "%~dp0"
 
-REM Check for virtual environment
-if exist ".venv\Scripts\activate.bat" (
-    echo [*] Activating virtual environment...
-    call .venv\Scripts\activate.bat
-) else (
-    echo [!] Virtual environment not found. Run this first:
-    echo     python -m venv .venv
-    echo     .venv\Scripts\activate
-    echo     pip install -r requirements.txt
-    echo.
-    pause
-    exit /b 1
-)
+REM Use the virtual environment's Python directly (no activation required)
+set "PYTHON=.venv\Scripts\python.exe"
+if exist "%PYTHON%" goto have_python
+echo [^^!] Virtual environment not found. Run this first:
+echo     python -m venv .venv
+echo     .venv\Scripts\activate
+echo     pip install -r requirements.txt
+echo.
+pause
+exit /b 1
+
+:have_python
+echo [*] Using virtual environment: .venv
 
 :menu
 cls
@@ -38,10 +38,13 @@ set /p CHOICE="Select option (0-6): "
 REM Remove any spaces
 set CHOICE=%CHOICE: =%
 
+REM IMPORTANT: inside parenthesized blocks below, use !VAR! (delayed expansion).
+REM %VAR% is expanded when the block is parsed - before set /p has run.
+
 if "%CHOICE%"=="1" (
     echo.
     echo [*] Running certificate check with example config...
-    python -m checker --config example_config.yaml
+    "%PYTHON%" -m checker --config example_config.yaml
     echo.
     echo [*] Check complete.
     echo.
@@ -53,13 +56,13 @@ if "%CHOICE%"=="1" (
 if "%CHOICE%"=="2" goto check_url_handler
 
 if "%CHOICE%"=="3" (
+    set INTERVAL=
     set /p INTERVAL="Check interval in seconds (default 21600 = 6 hours): "
-    if "%INTERVAL%"=="" set INTERVAL=21600
+    if "!INTERVAL!"=="" set INTERVAL=21600
     echo.
-    echo [*] Starting monitor mode (interval: %INTERVAL%s)...
-    echo [*] Press Ctrl+C to stop.
+    echo [*] Starting monitor mode every !INTERVAL!s - press Ctrl+C to stop.
     echo.
-    python -m checker monitor --config example_config.yaml --interval %INTERVAL%
+    "%PYTHON%" -m checker monitor --config example_config.yaml --interval !INTERVAL!
     echo.
     echo [*] Monitor stopped.
     echo Press any key to return to menu...
@@ -68,13 +71,14 @@ if "%CHOICE%"=="3" (
 )
 
 if "%CHOICE%"=="4" (
+    set PORT=
     set /p PORT="API server port (default 8000): "
-    if "%PORT%"=="" set PORT=8000
+    if "!PORT!"=="" set PORT=8000
     echo.
-    echo [*] Starting API server on http://127.0.0.1:%PORT%/api/monitors
+    echo [*] Starting API server on http://127.0.0.1:!PORT!/api/monitors
     echo [*] Press Ctrl+C to stop.
     echo.
-    python -m checker serve --config example_config.yaml --port %PORT%
+    "%PYTHON%" -m checker serve --config example_config.yaml --port !PORT!
     echo.
     echo [*] Server stopped.
     echo Press any key to return to menu...
@@ -84,8 +88,8 @@ if "%CHOICE%"=="4" (
 
 if "%CHOICE%"=="5" (
     echo.
-    echo [*] Running dry-run check (no emails sent)...
-    python -m checker --config example_config.yaml --dry-run --verbose
+    echo [*] Running dry-run check - no emails sent
+    "%PYTHON%" -m checker --config example_config.yaml --dry-run --verbose
     echo.
     echo [*] Dry-run complete.
     echo Press any key to return to menu...
@@ -99,14 +103,15 @@ if "%CHOICE%"=="0" (
 )
 
 if "%CHOICE%"=="6" (
+    set URL=
     set /p URL="Enter URL to check (e.g. https://google.com): "
-    if "%URL%"=="" (
-        echo [!] No URL entered.
+    if "!URL!"=="" (
+        echo [^^!] No URL entered.
         timeout /t 2 >nul
         goto menu
     )
     echo.
-    python -m checker --url "%URL%"
+    "%PYTHON%" -m checker --url "!URL!"
     echo.
     pause
     exit /b
@@ -114,7 +119,7 @@ if "%CHOICE%"=="6" (
 
 REM Invalid choice
 echo.
-echo [!] Invalid option "%CHOICE%"
+echo [^^!] Invalid option "%CHOICE%"
 echo Press any key to try again...
 pause >nul
 goto menu
@@ -129,14 +134,14 @@ REM ============================================
 set URL=
 set /p URL="Enter URL to check (e.g. https://google.com): "
 if "%URL%"=="" (
-    echo [!] No URL entered. Returning to menu...
+    echo [^^!] No URL entered. Returning to menu...
     timeout /t 2 >nul
     goto menu
 )
 echo.
 echo [*] Checking: %URL%
 echo.
-python -m checker --url "%URL%" --verbose
+"%PYTHON%" -m checker --url "%URL%" --verbose
 echo.
 echo ============================================
 echo  Result for: %URL%

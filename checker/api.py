@@ -49,6 +49,7 @@ class MonitorApiHandler(BaseHTTPRequestHandler):
                     "expiresAt": _iso8601(r.expires_at),
                     "daysRemaining": r.days_remaining,
                     "status": r.status,
+                    "reasonCode": r.error_reason.value if r.error_reason else None,
                 }
                 for r in results
             ]

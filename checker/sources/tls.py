@@ -52,6 +52,12 @@ def _reason_for_socket_error(exc: BaseException) -> ErrorReason:
     return ErrorReason.CERTIFICATE_RETRIEVAL_FAILURE
 
 
+def _is_connection_reset(exc: BaseException) -> bool:
+    """Return True for peer-initiated connection resets (e.g. WinError 10054)."""
+
+    return isinstance(exc, ConnectionResetError) or getattr(exc, "errno", None) == errno.ECONNRESET
+
+
 class TLSCertificateSource:
     """Retrieve a TLS leaf without verification, then attempt normal validation."""
 
@@ -76,14 +82,28 @@ class TLSCertificateSource:
         context.check_hostname = False
         try:
             with socket.create_connection((host, port), timeout=timeout) as raw:
-                with context.wrap_socket(raw, server_hostname=_sni_name(host)) as tls_socket:
-                    der = tls_socket.getpeercert(binary_form=True)
-            if not der:
-                return [error_result(target, ErrorReason.CERTIFICATE_RETRIEVAL_FAILURE, "peer sent no certificate")]
-        except ssl.SSLError as exc:
-            return [error_result(target, ErrorReason.TLS_HANDSHAKE_FAILURE, "TLS handshake failed")]
+                try:
+                    with context.wrap_socket(raw, server_hostname=_sni_name(host)) as tls_socket:
+                        der = tls_socket.getpeercert(binary_form=True)
+                except ssl.SSLError:
+                    return [error_result(target, ErrorReason.TLS_HANDSHAKE_FAILURE, "TLS handshake failed")]
+                except OSError as exc:
+                    if isinstance(exc, (TimeoutError, socket.timeout)):
+                        return [error_result(target, ErrorReason.TIMEOUT, "TLS handshake timed out")]
+                    if _is_connection_reset(exc):
+                        return [
+                            error_result(
+                                target,
+                                ErrorReason.TLS_HANDSHAKE_RESET,
+                                "TLS handshake was reset by the server; "
+                                "the server may be blocking automated (non-browser) TLS clients",
+                            )
+                        ]
+                    return [error_result(target, ErrorReason.TLS_HANDSHAKE_FAILURE, "TLS handshake failed")]
         except OSError as exc:
             return [error_result(target, _reason_for_socket_error(exc), "TLS connection failed")]
+        if not der:
+            return [error_result(target, ErrorReason.CERTIFICATE_RETRIEVAL_FAILURE, "peer sent no certificate")]
 
         chain_valid = self._validated_chain(host, port, timeout)
         try:

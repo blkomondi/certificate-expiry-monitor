@@ -3,8 +3,8 @@ from __future__ import annotations
 import email
 import pytest
 
-from checker.evaluation import evaluate_certificate
-from checker.models import Thresholds
+from checker.evaluation import error_result, evaluate_certificate
+from checker.models import ErrorReason, Thresholds
 from checker.notification.email import EmailNotifier
 from checker.parsing import parse_certificate_bytes
 from tests.conftest import FakeClock, make_certificate
@@ -131,6 +131,58 @@ def test_email_notifier_urgent_expired(monkeypatch, now) -> None:
     payload_text = parsed_msg.get_payload(decode=True).decode("utf-8")
     assert "Status: EXPIRED" in payload_text
     assert "This certificate has expired!" in payload_text
+
+
+def test_email_notifier_error_uses_accurate_copy(monkeypatch) -> None:
+    sent_messages: list[dict[str, object]] = []
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, timeout: float):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self, *, context=None):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def sendmail(self, from_addr, to_addrs, msg_str):
+            sent_messages.append({"msg": msg_str})
+
+    import smtplib
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+
+    notifier = EmailNotifier(
+        smtp_host="smtp.example.test",
+        use_tls=False,
+        starttls=False,
+        from_addr="alerts@example.test",
+        to_addrs=("admin@example.test",),
+    )
+
+    result = error_result(
+        "https://example.com",
+        ErrorReason.TLS_HANDSHAKE_RESET,
+        "TLS handshake was reset by the server; the server may be blocking automated (non-browser) TLS clients",
+    )
+    notifier.notify(result)
+
+    assert len(sent_messages) == 1
+    parsed_msg = email.message_from_string(str(sent_messages[0]["msg"]))
+    assert "TLS Certificate Monitoring Error: example.com" in parsed_msg["Subject"]
+    payload_text = parsed_msg.get_payload(decode=True).decode("utf-8")
+    assert "TLS Certificate Monitoring Error" in payload_text
+    assert "The certificate could not be checked" in payload_text
+    assert "blocking automated" in payload_text
+    assert "Status: TLS_ERROR" in payload_text
+    assert "approaching its expiry date" not in payload_text
 
 
 def test_email_notifier_smtp_failure(monkeypatch, now) -> None:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from checker.evaluation import evaluate_certificate
-from checker.models import Thresholds
+from checker.evaluation import error_result, evaluate_certificate
+from checker.models import ErrorReason, Thresholds
 from checker.notification.sendgrid import SendGridNotifier, _build_alert_content
 from checker.parsing import parse_certificate_bytes
 from tests.conftest import FakeClock, make_certificate
@@ -51,6 +51,22 @@ def test_build_alert_content_expired(now) -> None:
     assert "Status: EXPIRED" in body
     # Terminal table output includes negative days
     assert "-5" in body
+
+
+def test_build_alert_content_error() -> None:
+    result = error_result(
+        "https://example.com",
+        ErrorReason.TLS_HANDSHAKE_RESET,
+        "TLS handshake was reset by the server; the server may be blocking automated (non-browser) TLS clients",
+    )
+    subject, body = _build_alert_content(result)
+
+    assert "TLS Certificate Monitoring Error" in subject
+    assert "example.com" in subject
+    assert "The certificate could not be checked" in body
+    assert "blocking automated" in body
+    assert "Status: TLS_ERROR" in body
+    assert "approaching its expiry date" not in body
 
 
 def test_build_alert_content_subject_prefix(now) -> None:

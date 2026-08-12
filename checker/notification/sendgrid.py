@@ -25,11 +25,14 @@ def _build_alert_content(result: CheckResult) -> tuple[str, str]:
     certificate = result.certificate
     status_str = result.status
 
-    is_expired = result.severity == Severity.EXPIRED
-    if is_expired:
+    if result.severity == Severity.EXPIRED:
         subject = f"URGENT: TLS Certificate Expired: {hostname}"
         header_title = "URGENT: TLS Certificate Expired"
         footer = "This certificate has expired!"
+    elif result.severity == Severity.ERROR:
+        subject = f"TLS Certificate Monitoring Error: {hostname}"
+        header_title = "TLS Certificate Monitoring Error"
+        footer = f"The certificate could not be checked: {result.message}"
     else:
         subject = f"TLS Certificate Expiry Alert: {hostname}"
         header_title = "TLS Certificate Expiry Alert"
