@@ -25,6 +25,9 @@ htmlcov/
 cmd.txt
 *.log
 
+# Local tooling
+plink.exe
+
 # IDE & OS
 .vscode/
 .idea/
