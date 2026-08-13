@@ -39,7 +39,7 @@ notifications:
     url: "http://192.168.200.13:9090/cem-alert"
   email:
     enabled: true
-    smtp_host: "192.168.12.16"
+    smtp_host: "192.168.200.177"
     smtp_port: 25
     username: ""
     password: ""
