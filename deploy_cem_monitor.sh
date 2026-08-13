@@ -48,13 +48,13 @@ notifications:
     ssl: false
     from_addr: "ecollect@sidianbank.co.ke"
     to_addrs:
-      - "comondi2004@gmail.com"
+      - "rktoroitich@sidianbank.co.ke"
   sendgrid:
     enabled: false
     api_key: ""
     from_addr: ""
     to_addrs:
-      - "comondi2004@gmail.com"
+      - "rktoroitich@sidianbank.co.ke"
 EOF
 
 echo "==> [2/4] Pulling image $IMAGE"
@@ -77,4 +77,4 @@ echo "--- state file ---"
 docker exec "$NAME" cat /app/data/certificate-monitor-state.json 2>/dev/null || true
 
 echo
-echo "DONE. Monitor checks every 6 hours; alerts go to comondi2004@gmail.com."
+echo "DONE. Monitor checks every 6 hours; alerts go to rktoroitich@sidianbank.co.ke."
