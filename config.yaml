@@ -19,6 +19,12 @@ targets:
   - type: url
     url: "https://ecollectuat.sidianbank.co.ke/"
 
+  - type: url
+    url: "https://ecollectdev.sidianbank.co.ke/"
+
+  - type: url
+    url: "https://keycloakdev.sidianbank.co.ke/"
+
 notifications:
   console:
     enabled: true

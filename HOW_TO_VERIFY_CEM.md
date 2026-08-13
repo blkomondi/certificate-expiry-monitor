@@ -49,6 +49,10 @@ Copy the whole project folder from:
 >        url: "https://ecollectv2.sidianbank.co.ke/"
 >      - type: url
 >        url: "https://ecollectuat.sidianbank.co.ke/"
+>      - type: url
+>        url: "https://ecollectdev.sidianbank.co.ke/"
+>      - type: url
+>        url: "https://keycloakdev.sidianbank.co.ke/"
 >    ```
 
 ---
@@ -98,12 +102,14 @@ python -m checker --url https://ecollectv2.sidianbank.co.ke/ --format json
 
 ### What "working" looks like (expected output)
 
-A table (or JSON) with **two rows**, one per URL, like:
+A table (or JSON) with **four rows**, one per URL, like:
 
 | Target | Status | Expires | Days left |
 |---|---|---|---|
 | ecollectv2.sidianbank.co.ke | OK / VALID | 2026-12-19 | 128 |
 | ecollectuat.sidianbank.co.ke | OK / VALID | 2026-12-19 | 128 |
+| ecollectdev.sidianbank.co.ke | OK / VALID | 2027-06-30 | 320 |
+| keycloakdev.sidianbank.co.ke | OK / VALID | 2027-06-30 | 320 |
 
 - `status: OK` and `normalized_status: VALID` → **CEM is working**.
 - `chain_valid: false` is **expected and fine** — the servers don't send the
@@ -161,7 +167,7 @@ cat /app/data/certificate-monitor-state.json
 - `docker ps` shows a `cem-monitor` container that has been up (not exited).
 - `docker logs` shows a recent check per URL (every 6 hours), e.g.
   `certificate expires in 128 day(s)`.
-- The state JSON file exists and contains entries for both URLs.
+- The state JSON file exists and contains entries for all four URLs.
 
 ---
 
