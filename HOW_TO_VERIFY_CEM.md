@@ -39,11 +39,10 @@ Copy the whole project folder from:
 `C:\Users\Admin\Documents\Codex\2026-07-27\CEM`
 (e.g. via a USB drive or network share), then open a command prompt in that folder.
 
-> **Important:** The file `config.yaml` (which contains the two Sidian eCollect
-> URLs and notification settings) lives only on the source machine — it is NOT
-> in the GitHub repo yet. If you cloned from GitHub, either:
-> 1. copy `config.yaml` over from the source machine, **or**
-> 2. copy `example_config.yaml` to `config.yaml` and edit the `targets` section to:
+> **Note:** The file `config.yaml` (with the two Sidian eCollect URLs and
+> notification settings) **is included in the repo**, so Option A gives you
+> everything out of the box. If you prefer to build your own, copy
+> `example_config.yaml` to `config.yaml` and edit the `targets` section to:
 >    ```yaml
 >    targets:
 >      - type: url
