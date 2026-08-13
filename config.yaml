@@ -1,0 +1,48 @@
+# Certificate Expiry Monitor (CEM) — Sidian Bank eCollect monitoring config.
+# Monitors the eCollect TLS endpoints and alerts on expiry via SMTP/SendGrid.
+
+settings:
+  timeout: 10
+  concurrency: 8
+  state_file: ".certificate-monitor-state.json"
+  check_interval: 21600  # seconds; 21600 = every 6 hours in monitor mode
+
+thresholds:
+  warning_days: 30
+  high_days: 15
+  critical_days: 5
+
+targets:
+  - type: url
+    url: "https://ecollectv2.sidianbank.co.ke/"
+
+  - type: url
+    url: "https://ecollectuat.sidianbank.co.ke/"
+
+notifications:
+  console:
+    enabled: true
+
+  webhook:
+    enabled: false
+    url: ""
+
+  email:
+    enabled: true
+    smtp_host: "192.168.12.16"
+    smtp_port: 25
+    username: ""
+    password: ""
+    use_tls: false
+    starttls: false
+    ssl: false
+    from_addr: "ecollect@sidianbank.co.ke"
+    to_addrs:
+      - "${ALERT_RECIPIENT}"
+
+  sendgrid:
+    enabled: true
+    api_key: "${SENDGRID_API_KEY}"
+    from_addr: "${SENDGRID_FROM}"
+    to_addrs:
+      - "${SENDGRID_RECIPIENT}"
